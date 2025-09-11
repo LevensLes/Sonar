@@ -1,0 +1,23 @@
+# Ignore the hidden Visual Studio folder
+.vs/
+
+# Ignore user-specific files
+*.vcxproj.user
+*.suo
+
+# Ignore runtime-generated ImGui settings
+imgui.ini
+
+# Ignore all build output directories at the root and project level
+# This will catch both C:\x64\ and C:\Sonar\x64\
+x64/
+[Dd]ebug/
+[Rr]elease/
+
+# Ignore compiled files explicitly, just in case
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.log
