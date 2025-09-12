@@ -1,3 +1,4 @@
+
 #define NOMINMAX
 #include <GLFW/glfw3.h>
 #include "ui.h"
@@ -52,6 +53,12 @@ void SaveSettings(const AppState& state) {
     settings_file << "case_insensitive=" << state.scan_case_insensitive << std::endl;
     settings_file << "clear_signatures_on_complete=" << state.clear_signatures_on_complete << std::endl;
     settings_file << "default_output_dir=" << state.default_output_dir << std::endl;
+    settings_file << "dump_output_path=" << state.dump_output_path << std::endl;
+    settings_file << "filter_list_path=" << state.filter_list_path << std::endl;
+    settings_file << "clean_dump_path=" << state.clean_dump_path << std::endl;
+    settings_file << "dirty_dump_path=" << state.dirty_dump_path << std::endl;
+    settings_file << "diff_export_path=" << state.diff_export_path << std::endl;
+    settings_file << "file_to_inspect=" << state.file_to_inspect << std::endl;
 
     settings_file << "\n[DumperDefaults]" << std::endl;
     settings_file << "dump_type=" << state.dump_type << std::endl;
@@ -60,6 +67,7 @@ void SaveSettings(const AppState& state) {
     settings_file << "use_filter_list=" << state.use_filter_list << std::endl;
     settings_file << "filter_non_ascii=" << state.filter_non_ascii << std::endl;
 }
+
 
 void LoadSettings(AppState& state) {
     std::ifstream settings_file(GetConfigFilePath());
@@ -84,6 +92,12 @@ void LoadSettings(AppState& state) {
                 else if (key == "case_insensitive") state.scan_case_insensitive = (std::stoi(value) != 0);
                 else if (key == "clear_signatures_on_complete") state.clear_signatures_on_complete = (std::stoi(value) != 0);
                 else if (key == "default_output_dir") strncpy_s(state.default_output_dir, value.c_str(), sizeof(state.default_output_dir) - 1);
+                else if (key == "dump_output_path") strncpy_s(state.dump_output_path, value.c_str(), sizeof(state.dump_output_path) - 1);
+                else if (key == "filter_list_path") strncpy_s(state.filter_list_path, value.c_str(), sizeof(state.filter_list_path) - 1);
+                else if (key == "clean_dump_path") strncpy_s(state.clean_dump_path, value.c_str(), sizeof(state.clean_dump_path) - 1);
+                else if (key == "dirty_dump_path") strncpy_s(state.dirty_dump_path, value.c_str(), sizeof(state.dirty_dump_path) - 1);
+                else if (key == "diff_export_path") strncpy_s(state.diff_export_path, value.c_str(), sizeof(state.diff_export_path) - 1);
+                else if (key == "file_to_inspect") strncpy_s(state.file_to_inspect, value.c_str(), sizeof(state.file_to_inspect) - 1);
                 // Dumper Defaults
                 else if (key == "dump_type") state.dump_type = static_cast<AppState::DumpType>(std::stoi(value));
                 else if (key == "dump_optimize") state.dump_optimize = (std::stoi(value) != 0);
@@ -93,6 +107,43 @@ void LoadSettings(AppState& state) {
             }
             catch (const std::invalid_argument&) { /* ignore malformed lines */ }
             catch (const std::out_of_range&) { /* ignore malformed lines */ }
+        }
+    }
+
+    // After loading, check for any uninitialized forensic paths and derive them from the default directory.
+    if (state.default_output_dir[0] != '\0') {
+        std::filesystem::path base_path(state.default_output_dir);
+        std::filesystem::path dumps_dir = base_path / "dumps";
+        std::filesystem::path results_dir = base_path / "results";
+        std::filesystem::path filters_dir = base_path / "filters";
+
+        if (state.dump_output_path[0] == '\0') {
+            strncpy_s(state.dump_output_path, (dumps_dir / "memory_dump.bin").string().c_str(), sizeof(state.dump_output_path) - 1);
+        }
+        if (state.filter_list_path[0] == '\0') {
+            strncpy_s(state.filter_list_path, (filters_dir / "filter.txt").string().c_str(), sizeof(state.filter_list_path) - 1);
+        }
+        if (state.clean_dump_path[0] == '\0') {
+            strncpy_s(state.clean_dump_path, (dumps_dir / "clean_dump.txt").string().c_str(), sizeof(state.clean_dump_path) - 1);
+        }
+        if (state.dirty_dump_path[0] == '\0') {
+            strncpy_s(state.dirty_dump_path, (dumps_dir / "dirty_dump.txt").string().c_str(), sizeof(state.dirty_dump_path) - 1);
+        }
+        if (state.diff_export_path[0] == '\0') {
+            strncpy_s(state.diff_export_path, (results_dir / "diff_report.txt").string().c_str(), sizeof(state.diff_export_path) - 1);
+        }
+    }
+
+    // --- FIXED: Add final sync to ensure dump path extension matches the loaded dump type ---
+    std::string current_path(state.dump_output_path);
+    size_t dot_pos = current_path.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        std::string base_path = current_path.substr(0, dot_pos);
+        if (state.dump_type == AppState::DUMP_TYPE_TEXT && current_path.substr(dot_pos) != ".txt") {
+            strncpy_s(state.dump_output_path, (base_path + ".txt").c_str(), sizeof(state.dump_output_path) - 1);
+        }
+        else if (state.dump_type == AppState::DUMP_TYPE_BINARY && current_path.substr(dot_pos) != ".bin") {
+            strncpy_s(state.dump_output_path, (base_path + ".bin").c_str(), sizeof(state.dump_output_path) - 1);
         }
     }
 }
@@ -526,7 +577,13 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
         ImGui::EndChild();
         ImGui::Spacing();
 
+        const ImGuiStyle& style = ImGui::GetStyle();
+        float folder_button_width = ImGui::CalcTextSize(ICON_FA_FOLDER_OPEN).x + style.FramePadding.x * 2.0f;
+        // --- FIXED: Subtracted an extra item spacing to create padding on the right of the button ---
+        float input_width = ImGui::GetContentRegionAvail().x - folder_button_width - (style.ItemSpacing.x * 2.0f);
+        ImGui::PushItemWidth(input_width);
         ImGui::InputTextWithHint("##dump_path", ICON_FA_FLOPPY_DISK " C:\\temp\\memory_dump.bin", state.dump_output_path, IM_ARRAYSIZE(state.dump_output_path));
+        ImGui::PopItemWidth();
         ImGui::SameLine();
         if (ImGui::Button(ICON_FA_FOLDER_OPEN)) {
             std::string dir = GetDirectoryFromPath(state.dump_output_path);
@@ -567,7 +624,7 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
             ImGui::Checkbox("Use Filter List", &state.use_filter_list); ImGui::SameLine();
             ImGui::Checkbox("Filter Non-ASCII", &state.filter_non_ascii);
 
-            ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - ImGui::GetStyle().WindowPadding.x);
+            ImGui::PushItemWidth(-style.ItemSpacing.x);
             ImGui::InputTextWithHint("##filter_path", "Filter File Path...", state.filter_list_path, IM_ARRAYSIZE(state.filter_list_path));
             ImGui::PopItemWidth();
         }
@@ -575,7 +632,6 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
         ImGui::Dummy(ImVec2(0, 5.0f));
         const float button_width = 180.0f;
         const float button_height = 35.0f;
-        const ImGuiStyle& style = ImGui::GetStyle();
         float group_width = button_width;
         if (!state.has_debug_privilege) group_width += ImGui::CalcTextSize(ICON_FA_EXCLAMATION_TRIANGLE).x + style.ItemInnerSpacing.x;
 
@@ -623,8 +679,10 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
     ImGui::Dummy(ImVec2(0, item_spacing));
 
     if (BeginCard(ICON_FA_EXCHANGE_ALT " Differential Analyzer", ImVec2(0, ImGui::GetContentRegionAvail().y), true, 10.f, true)) {
+        ImGui::PushItemWidth(-ImGui::GetStyle().ItemSpacing.x);
         ImGui::InputTextWithHint("##clean_path", ICON_FA_FILE_CODE " Clean Dump Path...", state.clean_dump_path, IM_ARRAYSIZE(state.clean_dump_path));
         ImGui::InputTextWithHint("##dirty_path", ICON_FA_FILE_CODE " Dirty Dump Path...", state.dirty_dump_path, IM_ARRAYSIZE(state.dirty_dump_path));
+        ImGui::PopItemWidth();
         ImGui::Dummy(ImVec2(0, 5));
 
         bool diff_button_disabled = state.diff_running || state.clean_dump_path[0] == '\0' || state.dirty_dump_path[0] == '\0';
@@ -650,7 +708,10 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
             ImGui::ProgressBar(progress, ImVec2(-1, 0), buf);
         }
         else if (state.new_diff_results_ready) {
+            float export_button_width = ImGui::CalcTextSize("Export").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - export_button_width - ImGui::GetStyle().ItemSpacing.x);
             ImGui::InputTextWithHint("##export_path", "Export File Path...", state.diff_export_path, IM_ARRAYSIZE(state.diff_export_path));
+            ImGui::PopItemWidth();
             ImGui::SameLine();
             if (AccentButton("Export", state)) {
                 auto [success, message] = ExportDiffResults(state.diff_result, state.diff_export_path);
@@ -693,7 +754,9 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
 
     // --- RIGHT COLUMN ---
     if (BeginCard(ICON_FA_SEARCH " PE File Inspector", ImVec2(0, top_card_height))) {
+        ImGui::PushItemWidth(-ImGui::GetStyle().ItemSpacing.x);
         ImGui::InputTextWithHint("##file_path_inspect", ICON_FA_FILE_CODE " File Path (drag/drop)...", state.file_to_inspect, IM_ARRAYSIZE(state.file_to_inspect));
+        ImGui::PopItemWidth();
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_FILE_PATH")) {
                 const char* path = (const char*)payload->Data;
@@ -761,11 +824,19 @@ static void RenderForensic(AppState& state, const ImVec2& contentSize) {
 }
 
 static void RenderSettings(AppState& state, const ImVec2& contentSize) {
-    if (BeginCard(ICON_FA_COG " Workflow & Defaults", ImVec2(contentSize.x, 0))) {
+    // Begin a single, scrollable card that takes up the entire content area.
+    // The last parameter 'true' enables scrolling.
+    if (BeginCard(ICON_FA_COG " Application Settings", contentSize, true, 10.0f, true)) {
+
+        // --- WORKFLOW SECTION ---
+        ImGui::Text("Workflow & Defaults");
+        Separator();
+        ImGui::Dummy(ImVec2(0, 5.0f));
+
         ImGui::Text("Default Output Directory");
         const ImGuiStyle& style = ImGui::GetStyle();
         float browse_button_width = ImGui::CalcTextSize("Browse...").x + style.FramePadding.x * 2.0f;
-        float input_width = ImGui::GetContentRegionAvail().x - browse_button_width - style.ItemInnerSpacing.x - style.ItemSpacing.x;
+        float input_width = ImGui::GetContentRegionAvail().x - browse_button_width - style.ItemSpacing.x;
         ImGui::PushItemWidth(input_width);
         ImGui::InputText("##outdir", state.default_output_dir, sizeof(state.default_output_dir));
         ImGui::PopItemWidth();
@@ -777,7 +848,7 @@ static void RenderSettings(AppState& state, const ImVec2& contentSize) {
             }
         }
 
-        Separator();
+        ImGui::Dummy(ImVec2(0, 5.0f));
         ImGui::Text("Default Memory Dumper Options");
         ImGui::RadioButton("Binary", (int*)&state.dump_type, AppState::DUMP_TYPE_BINARY); ImGui::SameLine();
         ImGui::RadioButton("Text (Strings)", (int*)&state.dump_type, AppState::DUMP_TYPE_TEXT);
@@ -785,42 +856,45 @@ static void RenderSettings(AppState& state, const ImVec2& contentSize) {
         ImGui::Checkbox("Use filter list for text dumps", &state.use_filter_list);
         ImGui::Checkbox("Filter non-ASCII characters from text dumps", &state.filter_non_ascii);
 
-        Separator();
+        ImGui::Dummy(ImVec2(0, 5.0f));
         ImGui::Checkbox("Clear signatures text box after each quick scan", &state.clear_signatures_on_complete);
         ImGui::Checkbox("Quick scan is case-insensitive by default", &state.scan_case_insensitive);
+        ImGui::Dummy(ImVec2(0, 15.0f));
 
-        if (AccentButton("Save Workflow Settings", state)) {
-            SaveSettings(state);
-        }
-        EndCard();
-    }
 
-    ImGui::Dummy(ImVec2(0, 10));
+        // --- PERFORMANCE SECTION ---
+        ImGui::Text(ICON_FA_MICROCHIP " Performance");
+        Separator();
+        ImGui::Dummy(ImVec2(0, 5.0f));
 
-    if (BeginCard(ICON_FA_MICROCHIP " Performance", ImVec2(contentSize.x, 0))) {
         int max_threads = std::thread::hardware_concurrency();
         ImGui::SliderInt("Scanner Threads", &state.scanner_thread_count, 1, max_threads);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Controls how many CPU threads to use for memory scanning.\nYour system has %d threads.", max_threads);
+        ImGui::Dummy(ImVec2(0, 15.0f));
 
-        if (AccentButton("Save Performance Settings", state)) {
-            SaveSettings(state);
-        }
-        EndCard();
-    }
 
-    ImGui::Dummy(ImVec2(0, 10));
+        // --- APPEARANCE SECTION ---
+        ImGui::Text(ICON_FA_PAINT_BRUSH " Appearance");
+        Separator();
+        ImGui::Dummy(ImVec2(0, 5.0f));
 
-    if (BeginCard(ICON_FA_PAINT_BRUSH " Appearance", ImVec2(contentSize.x, 0))) {
         if (ImGui::ColorEdit3("Accent Color", (float*)&state.accent_color)) {
             ApplySonarStyle(state);
         }
         ImGui::Checkbox("Enable subtle animations (UI only)", &state.settings_enable_animations);
-        if (AccentButton("Save Appearance Settings", state)) {
+        ImGui::Dummy(ImVec2(0, 20.0f));
+
+
+        // --- CONSOLIDATED SAVE BUTTON ---
+        if (AccentButton("Save All Settings", state, ImVec2(ImGui::GetContentRegionAvail().x, 35.0f))) {
             SaveSettings(state);
+            // You could add a toast notification here to confirm saving
         }
+
         EndCard();
     }
 }
+
 
 static bool SidebarButton(const char* icon, const char* label, bool is_active, const AppState& state) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
