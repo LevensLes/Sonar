@@ -52,7 +52,7 @@ Sonar Toolkit is a native C++ application that interacts directly with the Windo
 
 1.  Clone the repository:
     ```sh
-    git clone [https://github.com/your-username/sonar-toolkit.git](https://github.com/LevensLes/Sonar.git)
+    git clone https://github.com/LevensLes/Sonar.git
     cd sonar
     ```
 2.  Create a build directory:
